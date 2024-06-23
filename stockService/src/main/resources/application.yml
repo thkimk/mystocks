@@ -1,0 +1,19 @@
+#kkk: -Dspring.profiles.active=local, dev, prd : 메인 jar파일이 java -jar 구문의 맨뒤에 있어야 함..!!
+server:
+  port: 9001
+
+spring:
+  application:
+    name: stockService
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/mylotto?autoReconnection=true&useSSL=false&allowMultiQueries=true&zeroDateTimeBehavior=convertToNull
+    username: root
+    password: welcome
+
+logging:
+  register-shutdown-hook: false
+  config: classpath:logback.xml
+  level:
+    root: INFO
+    com.hanwha.tax: DEBUG
