@@ -9,9 +9,8 @@
 import tensorflow as tf
 import numpy as np
 import pandas as pd
-from tensorflow.python.keras.models import Sequential
-# from tensorflow.python.keras.layers import LSTM, Dense, Dropout
-from torchrl.modules.tensordict_module.rnn import LSTM
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
 
 
 def stockModel(X, Y, epochN=100):
@@ -23,7 +22,7 @@ def stockModel(X, Y, epochN=100):
     model.compile(loss='mse', optimizer='adam', metrics=['mae'])
     # model.summary()
 
-    from tensorflow.python.keras.callbacks import EarlyStopping
+    from tensorflow.keras.callbacks import EarlyStopping
     early_stop = EarlyStopping(monitor='val_loss', patience=5)
 
     model.fit(X,Y,

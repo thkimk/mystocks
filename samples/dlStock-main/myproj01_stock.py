@@ -1,86 +1,95 @@
-###########################################################################
-## 실행방법 : iptyhon 위에서, run 실행
-## ipython
-## run -i stockSol.py
-###########################################################################
-
-import numpy as np
-import pandas as pd
+## ipython 에서, 아래 run 수행
+## run -i myproj01_stock.py
 
 import tensorflow as tf
+import numpy as np
+import pandas as pd
 from tensorflow.python.keras.models import Sequential
-# from tensorflow.python.keras.layers import LSTM, Dense, Dropout
-from torchrl.modules.tensordict_module.rnn import LSTM
+from tensorflow.python.keras.layers import LSTM, Dense, Dropout
 from sklearn.preprocessing import MinMaxScaler
-
 import sys
 
-import stockDefs as mydefs
-import stockModel as mymodel
+import myproj01_defs as mydefs
+import dlsolve as dls
 
 ###########################################################################
 ## 학습 데이터 추출 및 정제 (X, Y)
-## windowSize는 10정도가 적정
-## 학습데이터 : 종가(Close)와 거래량(Volume)이 중요+ 그외 (Open, High, Low)+ 20일전 종가
-## 결과데이터 : (4일후+ 5일후+ 6일후) / (종가*3)
-## 결과데이터 조건 : < 0.95 or > 1.05 --> 나머지는 제거
-## 전처리 : 0이 들어있으면 제거
-## 예측데이터 : 종가와 거래량이 작거나 너무 큰것은 제외 (1000<종가<50,000, 30,000<거래량)
-## 비고 : 학습데이터는 1년/250일 전까지만 수집 --> 최대한 많이 추출 (중간에 전처리되는 데이터가 많음)
+## policy00 : 기존 정책 (wSize 40, Close와 Volume만 적용)
+## policy01 : wSize를 10로 줄이고, X대상을 Open, Close, Low, High, Volume으로 변경
+## policy02 : wSize를 20으로 줄이고, X대상을 CloseRatio로만 변경 (1일, 5일, 15일, 30일), 당일 High와의 Ratio도 추가
 ###########################################################################
-is_model = False    # True, False
-STOCK_MODEL = "stock_model.h5"
-STOCK_CODES = ["005930", "009540", "066570", "051910", "035720", "047810", "000660","010620", "052690", "047050", "272210", "030000", "000990", "012450","047040", "010060", "204320", "375500", "111770", "081660","001230", "051600", "353200", "042700", "249420", "248070", "105630","402340", "034220", "032640", "018880", "004020", "035250", "028050","010140", "006800", "003410", "028670"]
-# STOCK_CODES = ["005930"]
-
+STOCK_POLICY = "01" # 00 or 01 or 02
+STOCK_MODEL = "stock_model00.h5"
+STOCK_CODES = ["005930", "009540", "066570", "051910", "035720", "047810", "000660"]
+# STOCK_CODES = ["005930", "009540", "066570"]
+stocks = pd.DataFrame()
 stock = None
+
 scaler = MinMaxScaler()
-scale_cols = ['Open', 'Close', 'Low', 'High', 'Volume', 'close20', 'closeRatio']
-feature_cols = ['Open', 'Close', 'Low', 'High', 'Volume', 'close20']
-result_cols = ['closeRatio']
-window_size = 10
+scale_cols = ['Open', 'Close', 'Volume', 'closeRatio']
+feature_cols = [ 'Close', 'Volume' ]
+label_cols = [ 'closeRatio' ]
+window_size = 40
 X = None
 Y = None
+print("## STOCK_POLICY: ", STOCK_POLICY)
 
 # sys.exit(1)
 
-if not is_model:
-    for code in STOCK_CODES:
-        # 학습데이터 추출 (mydefs.stockData)
+if STOCK_POLICY == "01":
+    STOCK_MODEL = "stock_model01.dl"
+    window_size = 10
+    scale_cols = ['Open', 'Close', 'Low', 'High', 'Volume', 'closeRatio']
+    feature_cols = [ 'Open', 'Close', 'Low', 'High', 'Volume' ]
+    
+elif STOCK_POLICY == "02":
+    STOCK_MODEL = "stock_model02.dl"
+    window_size = 20
+    scale_cols = [ 'Open', 'Close', 'close01', 'close05', 'close15', 'close30', 'high01', 'closeRatio']
+    feature_cols = [ 'close01', 'close05', 'close15', 'close30', 'high01' ]
+
+for code in STOCK_CODES:
+    # 추출 (mydefs.stockData)
+    if STOCK_POLICY == "00":
         stock = mydefs.stockData(code, 250)
+    elif STOCK_POLICY == "01":
+        stock = mydefs.stockData01(code, 250)
+    elif STOCK_POLICY == "02":
+        stock = mydefs.stockData02(code, 250+30)
 
-        # 정규화 (minMax/ scaler.fit_transform)
-        scaled_df = scaler.fit_transform(stock)
-        scaled_df = pd.DataFrame(scaled_df, columns=scale_cols)
-        feature_df = pd.DataFrame(scaled_df, columns=feature_cols)
-        result_df = pd.DataFrame(scaled_df, columns=result_cols)
-        feature_np = feature_df.to_numpy()
-        result_np = result_df.to_numpy()
+    stock = mydefs.removeZerocloseRatio(stock)
 
-        # 데이터셋 (make_sequence_dataset)
-        X0, Y0 = mydefs.make_sequene_dataset(feature_np, result_np, window_size)
-        if X is None:
-            X = X0
-            Y = Y0
-        else:
-            X = np.concatenate((X, X0))
-            Y = np.concatenate((Y, Y0))
+    # 정규화 (minMax/ scaler.fit_transform)
+    scaled_df = scaler.fit_transform(stock)
+    scaled_df = pd.DataFrame(scaled_df, columns=scale_cols)
+    feature_df = pd.DataFrame(scaled_df, columns=feature_cols)
+    label_df = pd.DataFrame(scaled_df, columns=label_cols)
+    feature_np = feature_df.to_numpy()
+    label_np = label_df.to_numpy()
 
-# print("sys.exit")
-# sys.exit(1)
+    # 데이터셋 (make_sequence_dataset)
+    X0, Y0 = mydefs.make_sequene_dataset(feature_np, label_np, window_size)
+    if X is None:
+        X = X0
+        Y = Y0
+    else:
+        X = np.concatenate((X, X0))
+        Y = np.concatenate((Y, Y0))
+
 
 ###########################################################################
 ## 딥러닝 학습
 ###########################################################################
 model = None
+is_model = True
 if not is_model:
-    model = mymodel.stockModel(X, Y, 1500)
+    model = dls.stockModel(X, Y, 1500)
     model.save(STOCK_MODEL)
 else:    
     model = tf.keras.models.load_model(STOCK_MODEL)
     model.summary()
     
-sys.exit(1)
+# sys.exit(1)
 
 
 ###########################################################################
@@ -97,13 +106,18 @@ results = []
 
 for i in stock_list.index:
     # kospi 종목의 데이터를 추출
-    stock = mydefs.predictData(stock_list["Symbol"][i])        
+    if STOCK_POLICY == "00":
+        stock = mydefs.predictData(stock_list["Symbol"][i])        
+    elif STOCK_POLICY == "01":
+        stock = mydefs.predictData01(stock_list["Symbol"][i])
+    elif STOCK_POLICY == "02":
+        stock = mydefs.predictData02(stock_list["Symbol"][i])
     
     # 종가와 거래량이 적은 것은 skip
-    if stock is None:
+    if stock == None:
         continue
 
-    # High와 Low의 폭이 작은 것도 skip 
+    # High와 Low의 폭이 작은 것도 skip
 
     # 정규화 (scaler)
     scaled_df = scaler.fit_transform(stock)
@@ -123,8 +137,8 @@ for i in stock_list.index:
     results.append(result)
     # print("result: ", result)
 
-    if i >= 10:
-        break
+    # if i >= 10:
+    #     break
 
 
 ###########################################################################
